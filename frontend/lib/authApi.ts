@@ -1,13 +1,13 @@
 import type { User } from "./types";
 
-const apiUrl =
-  process.env.NEXT_PUBLIC_API_URL ??
-  (typeof window === "undefined"
-    ? "http://127.0.0.1:8000"
-    : `http://${window.location.hostname}:8000`);
+function getApiUrl(): string {
+  if (process.env.NEXT_PUBLIC_API_URL) return process.env.NEXT_PUBLIC_API_URL;
+  if (typeof window === "undefined") return "http://127.0.0.1:8000";
+  return `http://${window.location.hostname}:8000`;
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${apiUrl}${path}`, {
+  const response = await fetch(`${getApiUrl()}${path}`, {
     ...init,
     credentials: "include", // always send the httpOnly cookie
     headers: { "Content-Type": "application/json", ...init?.headers },

@@ -1,13 +1,18 @@
 import type { ChatMessage, Dashboard, Meeting, Participant } from "./types";
 
-// On a phone or another laptop, 127.0.0.1 points to that device rather than
-// the computer running the API. Use the current hostname unless deployment
-// provides an explicit public API URL.
-const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? (typeof window === "undefined" ? "http://127.0.0.1:8000" : `http://${window.location.hostname}:8000`);
-export const wsUrl = apiUrl.replace(/^http/, "ws");
+// Evaluated lazily at request time (not module load) so that SSR doesn't
+// freeze the URL to 127.0.0.1 before the browser hostname is known.
+function getApiUrl(): string {
+  if (process.env.NEXT_PUBLIC_API_URL) return process.env.NEXT_PUBLIC_API_URL;
+  if (typeof window === "undefined") return "http://127.0.0.1:8000";
+  return `http://${window.location.hostname}:8000`;
+}
+export function wsUrl(): string {
+  return getApiUrl().replace(/^http/, "ws");
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${apiUrl}${path}`, {
+  const response = await fetch(`${getApiUrl()}${path}`, {
     ...init,
     credentials: "include",
     headers: { "Content-Type": "application/json", ...init?.headers },

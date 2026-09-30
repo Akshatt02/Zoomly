@@ -192,7 +192,7 @@ export function MeetingRoom({ meeting: initialMeeting, attendeeName, participant
 
   useEffect(() => {
     refresh().catch(() => undefined);
-    const ws = new WebSocket(`${wsUrl}/api/ws/meetings/${initialMeeting.meeting_id}?client_id=${encodeURIComponent(clientId)}`);
+    const ws = new WebSocket(`${wsUrl()}/api/ws/meetings/${initialMeeting.meeting_id}?client_id=${encodeURIComponent(clientId)}`);
     socket.current = ws;
     ws.onopen = () => { if (!isWaiting) { announced.current = true; send({ type: "ready" }); } };
     ws.onmessage = (event) => {
