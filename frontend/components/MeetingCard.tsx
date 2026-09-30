@@ -22,17 +22,12 @@ export function MeetingCard({ meeting, recent = false, onCopy }: { meeting: Meet
       <div className="meeting-body">
         <div className="meeting-heading">
           <h3>{meeting.title}</h3>
-          <button onClick={() => onCopy(meeting)} className="copy-button" aria-label="Copy invite link" title="Copy invite link">
-            <Copy size={15} />
-          </button>
         </div>
         <div className="meeting-meta">
           <span className="meta-time">
             <Clock size={12} />
             {recent ? "Instant session" : formatDate(meeting.scheduled_at)}
           </span>
-          <span className="dot">•</span>
-          <span className="meta-duration">{meeting.duration} min</span>
           <span className="dot">•</span>
           <span className="meeting-id">ID: {meeting.meeting_id}</span>
         </div>
