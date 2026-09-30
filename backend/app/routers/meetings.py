@@ -154,7 +154,18 @@ async def remove_participant(meeting_id: str, participant_id: int, db: Session =
         raise HTTPException(status_code=404, detail="Participant could not be found")
     participant.status = "removed"
     db.commit()
+    await meeting_connections.broadcast(meeting_id, {"type": "participant_removed", "participant_id": participant_id})
     await meeting_connections.broadcast(meeting_id, {"type": "participant_changed"})
+
+
+@router.post("/meetings/{meeting_id}/end", response_model=MeetingOut)
+async def end_meeting(meeting_id: str, db: Session = Depends(get_db)):
+    meeting = get_meeting_or_404(db, meeting_id)
+    meeting.status = "ended"
+    db.commit()
+    db.refresh(meeting)
+    await meeting_connections.broadcast(meeting_id, {"type": "meeting_ended"})
+    return meeting_out(meeting)
 
 
 @router.post("/meetings/{meeting_id}/participants/{participant_id}/leave", status_code=status.HTTP_204_NO_CONTENT)

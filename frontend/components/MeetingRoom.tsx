@@ -23,10 +23,11 @@ export function MeetingRoom({ meeting: initialMeeting, attendeeName, participant
   const router = useRouter();
   const { user } = useAuth();
   const clientId = isHost ? "host" : `participant-${participantId}`;
-  // Use the authenticated user's name for the host tile, fall back to attendeeName
-  const hostDisplayName = isHost ? (user?.name ?? attendeeName) : attendeeName;
-  const host: Participant = { id: 0, display_name: hostDisplayName, role: "host", is_muted: false, is_video_on: true, status: "active", is_hand_raised: false, joined_at: new Date().toISOString() };
   const [meeting, setMeeting] = useState(initialMeeting);
+  const hostDisplayName = isHost
+    ? (user?.name ?? attendeeName)
+    : (meeting.host_name || initialMeeting.host_name || "Host");
+  const host: Participant = { id: 0, display_name: hostDisplayName, role: "host", is_muted: false, is_video_on: true, status: "active", is_hand_raised: false, joined_at: new Date().toISOString() };
   const [active, setActive] = useState<Participant[]>([]);
   const [waiting, setWaiting] = useState<Participant[]>([]);
   const [muted, setMuted] = useState(false);
@@ -52,8 +53,36 @@ export function MeetingRoom({ meeting: initialMeeting, attendeeName, participant
   const send = (payload: object) => socket.current?.readyState === WebSocket.OPEN && socket.current.send(JSON.stringify(payload));
 
   async function refresh() {
-    const [meetingData, activePeople, waitingPeople] = await Promise.all([api.meeting(initialMeeting.meeting_id), api.participants(initialMeeting.meeting_id), api.participants(initialMeeting.meeting_id, "waiting")]);
-    setMeeting(meetingData); setActive(activePeople); setWaiting(waitingPeople);
+    try {
+      const [meetingData, activePeople, waitingPeople] = await Promise.all([
+        api.meeting(initialMeeting.meeting_id),
+        api.participants(initialMeeting.meeting_id),
+        api.participants(initialMeeting.meeting_id, "waiting"),
+      ]);
+      if (meetingData.status === "ended") {
+        streamRef.current?.getTracks().forEach((track) => track.stop());
+        shareStream?.getTracks().forEach((track) => track.stop());
+        router.push("/?ended=1");
+        return;
+      }
+      setMeeting(meetingData);
+      setActive(activePeople);
+      setWaiting(waitingPeople);
+
+      if (!isHost && participantId > 0 && !startsWaiting) {
+        const me = activePeople.find((person) => person.id === participantId);
+        if (!me) {
+          const isStillWaiting = waitingPeople.some((person) => person.id === participantId);
+          if (!isStillWaiting) {
+            streamRef.current?.getTracks().forEach((track) => track.stop());
+            shareStream?.getTracks().forEach((track) => track.stop());
+            router.push("/?removed=1");
+          }
+        }
+      }
+    } catch {
+      // Ignore transient errors
+    }
   }
 
   function formatMessage(message: { id: number; sender: string; sender_id: string; recipient_id: string | null; recipient_name: string | null; body: string; created_at: string }): RoomMessage {
@@ -178,6 +207,18 @@ export function MeetingRoom({ meeting: initialMeeting, attendeeName, participant
         } else {
           setSharedBy(null);
         }
+      } else if (payload.type === "meeting_ended") {
+        streamRef.current?.getTracks().forEach((track) => track.stop());
+        shareStream?.getTracks().forEach((track) => track.stop());
+        router.push("/?ended=1");
+      } else if (payload.type === "participant_removed") {
+        if (payload.participant_id === participantId) {
+          streamRef.current?.getTracks().forEach((track) => track.stop());
+          shareStream?.getTracks().forEach((track) => track.stop());
+          router.push("/?removed=1");
+        } else {
+          refresh().catch(() => undefined);
+        }
       } else refresh().catch(() => undefined);
     };
     return () => { ws.close(); peers.current.forEach((peer) => peer.close()); peers.current.clear(); streamRef.current?.getTracks().forEach((track) => track.stop()); shareStream?.getTracks().forEach((track) => track.stop()); };
@@ -224,7 +265,16 @@ export function MeetingRoom({ meeting: initialMeeting, attendeeName, participant
       setShowInviteLink(true);
     }
   }
-  async function leave() { if (participantId) await api.leave(meeting.meeting_id, participantId).catch(() => undefined); streamRef.current?.getTracks().forEach((track) => track.stop()); shareStream?.getTracks().forEach((track) => track.stop()); router.push("/?left=1"); }
+  async function leave() {
+    if (isHost) {
+      await api.endMeeting(meeting.meeting_id).catch(() => undefined);
+    } else if (participantId) {
+      await api.leave(meeting.meeting_id, participantId).catch(() => undefined);
+    }
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    shareStream?.getTracks().forEach((track) => track.stop());
+    router.push(isHost ? "/?ended=1" : "/?left=1");
+  }
   async function sendChat(event: React.FormEvent) { event.preventDefault(); const body = draft.trim(); if (!body) return; const recipient = chatRecipient === "everyone" ? null : tiles.find((person) => participantKey(person) === chatRecipient) ?? null; const senderName = isHost ? (user?.name ?? attendeeName) : attendeeName; try { appendMessage(await api.sendMessage(meeting.meeting_id, { sender: senderName, sender_id: clientId, recipient_id: recipient ? participantKey(recipient) : null, recipient_name: recipient?.display_name ?? null, body })); setDraft(""); } catch { setMediaError("Your chat message could not be sent. Please try again."); } }
   const tiles = [host, ...active];
   const hasAudio = Boolean(stream?.getAudioTracks().length);

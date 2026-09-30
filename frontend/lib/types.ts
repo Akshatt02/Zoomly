@@ -3,6 +3,8 @@ export type User = { id: number; name: string; email: string; avatar: string | n
 export type Meeting = {
   id: number;
   meeting_id: string;
+  host_id: number;
+  host_name: string;
   title: string;
   description: string;
   meeting_type: "instant" | "scheduled";

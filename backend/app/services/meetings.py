@@ -15,6 +15,8 @@ def meeting_out(meeting: Meeting) -> dict:
     return {
         "id": meeting.id,
         "meeting_id": meeting.meeting_id,
+        "host_id": meeting.host_id,
+        "host_name": meeting.host.name if meeting.host else "Host",
         "title": meeting.title,
         "description": meeting.description,
         "meeting_type": meeting.meeting_type,

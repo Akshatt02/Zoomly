@@ -37,6 +37,7 @@ export const api = {
   leave: (meetingId: string, participantId: number) => request<void>(`/api/meetings/${meetingId}/participants/${participantId}/leave`, { method: "POST" }),
   muteAll: (meetingId: string) => request<{ status: string }>(`/api/meetings/${meetingId}/mute-all`, { method: "POST" }),
   lock: (meetingId: string) => request<Meeting>(`/api/meetings/${meetingId}/lock`, { method: "POST" }),
+  endMeeting: (meetingId: string) => request<Meeting>(`/api/meetings/${meetingId}/end`, { method: "POST" }),
   messages: (meetingId: string, viewerId: string) => request<ChatMessage[]>(`/api/meetings/${meetingId}/messages?viewer_id=${encodeURIComponent(viewerId)}`),
   sendMessage: (meetingId: string, payload: { sender: string; sender_id: string; recipient_id: string | null; recipient_name: string | null; body: string }) => request<ChatMessage>(`/api/meetings/${meetingId}/messages`, { method: "POST", body: JSON.stringify(payload) }),
 };

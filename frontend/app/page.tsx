@@ -48,6 +48,8 @@ function DashboardContent() {
   useEffect(() => {
     if (searchParams.get("scheduled")) setToast("Meeting scheduled and added to your workspace.");
     if (searchParams.get("left")) setToast("You left the meeting room.");
+    if (searchParams.get("ended")) setToast("The host has ended the meeting.");
+    if (searchParams.get("removed")) setToast("You were removed from the meeting by the host.");
   }, [searchParams]);
 
   async function newMeeting() {

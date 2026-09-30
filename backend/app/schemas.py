@@ -119,6 +119,8 @@ class ParticipantOut(BaseModel):
 class MeetingOut(BaseModel):
     id: int
     meeting_id: str
+    host_id: int
+    host_name: str
     title: str
     description: str
     meeting_type: str
