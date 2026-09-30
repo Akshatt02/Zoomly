@@ -28,7 +28,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     authApi
       .me()
       .then(setUser)
-      .catch(() => setUser(null))
+      .catch(() => {
+        // Clear any stale cookie (e.g. after a DB reset) so the user
+        // lands on a clean login page rather than looping on 401.
+        authApi.logout().catch(() => {});
+        setUser(null);
+      })
       .finally(() => setLoading(false));
   }, []);
 
