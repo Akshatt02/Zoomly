@@ -1,5 +1,8 @@
+"use client";
+
 import Link from "next/link";
-import { ArrowUpRight, CalendarClock, Clock, Copy, Sparkles, Video } from "lucide-react";
+import { ArrowUpRight, CalendarClock, Clock, Sparkles, Video } from "lucide-react";
+import { useAuth } from "@/lib/authContext";
 import type { Meeting } from "@/lib/types";
 
 function formatDate(date: string | null) {
@@ -14,6 +17,15 @@ function formatDate(date: string | null) {
 }
 
 export function MeetingCard({ meeting, recent = false, onCopy }: { meeting: Meeting; recent?: boolean; onCopy: (meeting: Meeting) => void }) {
+  const { user } = useAuth();
+
+  // If the logged-in user is the host of this meeting, take them straight into
+  // the room as host — bypassing the join/waiting-room flow entirely.
+  const isHost = user && meeting.host_id === user.id;
+  const href = isHost
+    ? `/meeting/${meeting.meeting_id}?host=1&name=${encodeURIComponent(user.name)}`
+    : `/join/${meeting.meeting_id}?token=${meeting.invite_token}`;
+
   return (
     <article className="meeting-card">
       <div className={`meeting-icon ${recent ? "recent-icon" : ""}`}>
@@ -32,11 +44,10 @@ export function MeetingCard({ meeting, recent = false, onCopy }: { meeting: Meet
           <span className="meeting-id">ID: {meeting.meeting_id}</span>
         </div>
       </div>
-      <Link href={`/join/${meeting.meeting_id}?token=${meeting.invite_token}`} className="join-link">
-        <span>{recent ? "Join" : "Details"}</span>
-        {recent ? <Video size={16} /> : <ArrowUpRight size={16} />}
+      <Link href={href} className="join-link">
+        <span>{isHost ? "Start" : (recent ? "Join" : "Details")}</span>
+        {isHost || recent ? <Video size={16} /> : <ArrowUpRight size={16} />}
       </Link>
     </article>
   );
 }
-
