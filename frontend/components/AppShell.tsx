@@ -69,19 +69,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </aside>
 
       <main className="main-content">
-        <header className="topbar">
-          <Link href="/" className="mobile-brand">
-            <span className="brand-mark">
-              <Video size={16} fill="currentColor" />
-            </span>
-            <span>zoomly</span>
-          </Link>
-          <div className="topbar-actions">
-            <button className="avatar avatar-small topbar-avatar-btn" onClick={handleLogout} title="Sign out">
-              {avatarText}
-            </button>
-          </div>
-        </header>
         {children}
       </main>
 
