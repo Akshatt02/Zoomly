@@ -36,6 +36,7 @@ export function MeetingRoom({ meeting: initialMeeting, attendeeName, participant
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [shareStream, setShareStream] = useState<MediaStream | null>(null);
   const [remoteStreams, setRemoteStreams] = useState<Record<string, MediaStream>>({});
+  const [remoteMediaStates, setRemoteMediaStates] = useState<Record<string, { is_muted: boolean; is_video_on: boolean }>>({});
   const [sharedBy, setSharedBy] = useState<string | null>(null);
   const [mediaError, setMediaError] = useState("");
   const [copied, setCopied] = useState(false);
@@ -99,10 +100,15 @@ export function MeetingRoom({ meeting: initialMeeting, attendeeName, participant
   }
 
   function attachLocalTracks(peer: RTCPeerConnection) {
-    streamRef.current?.getTracks().forEach((track) => {
-      const sender = peer.getSenders().find((item) => item.track?.kind === track.kind);
-      if (!sender) peer.addTrack(track, streamRef.current!);
-      else if (sender.track !== track) sender.replaceTrack(track);
+    if (!streamRef.current) return;
+    streamRef.current.getTracks().forEach((track) => {
+      const senders = peer.getSenders();
+      const existingSender = senders.find((item) => item.track?.kind === track.kind || (!item.track && track.kind === "video"));
+      if (!existingSender) {
+        peer.addTrack(track, streamRef.current!);
+      } else if (existingSender.track !== track) {
+        void existingSender.replaceTrack(track);
+      }
     });
   }
 
@@ -203,10 +209,15 @@ export function MeetingRoom({ meeting: initialMeeting, attendeeName, participant
       else if (payload.type === "signal") handleSignal(payload.sender_id, payload.signal).catch(() => undefined);
       else if (payload.type === "screen_share") {
         if (payload.sharing) {
-          setSharedBy(payload.sender_name || payload.client_id);
+          setSharedBy(payload.client_id);
         } else {
           setSharedBy(null);
         }
+      } else if (payload.type === "media_state") {
+        setRemoteMediaStates((prev) => ({
+          ...prev,
+          [payload.client_id]: { is_muted: payload.is_muted, is_video_on: payload.is_video_on },
+        }));
       } else if (payload.type === "meeting_ended") {
         streamRef.current?.getTracks().forEach((track) => track.stop());
         shareStream?.getTracks().forEach((track) => track.stop());
@@ -224,6 +235,37 @@ export function MeetingRoom({ meeting: initialMeeting, attendeeName, participant
     return () => { ws.close(); peers.current.forEach((peer) => peer.close()); peers.current.clear(); streamRef.current?.getTracks().forEach((track) => track.stop()); shareStream?.getTracks().forEach((track) => track.stop()); };
   }, []);
 
+  // Auto-acquire local media (mic & camera) when entering meeting room
+  useEffect(() => {
+    if (isWaiting) return;
+    let mounted = true;
+    async function initMedia() {
+      try {
+        const incoming = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+        if (!mounted) { incoming.getTracks().forEach((t) => t.stop()); return; }
+        streamRef.current = incoming;
+        setStream(incoming);
+        setMuted(false);
+        setVideoOn(true);
+        send({ type: "media_state", is_muted: false, is_video_on: true });
+      } catch {
+        try {
+          const audioOnly = await navigator.mediaDevices.getUserMedia({ audio: true });
+          if (!mounted) { audioOnly.getTracks().forEach((t) => t.stop()); return; }
+          streamRef.current = audioOnly;
+          setStream(audioOnly);
+          setMuted(false);
+          setVideoOn(false);
+          send({ type: "media_state", is_muted: false, is_video_on: false });
+        } catch {
+          // Keep stream null if no permissions or media devices
+        }
+      }
+    }
+    void initMedia();
+    return () => { mounted = false; };
+  }, [isWaiting]);
+
   // WebSockets deliver room changes immediately. Polling keeps host controls,
   // waiting rooms, and persisted chat accurate if a mobile browser drops a notification.
   useEffect(() => {
@@ -233,19 +275,23 @@ export function MeetingRoom({ meeting: initialMeeting, attendeeName, participant
   }, [initialMeeting.meeting_id]);
 
   useEffect(() => { if (!isWaiting && socket.current?.readyState === WebSocket.OPEN && !announced.current) { announced.current = true; send({ type: "ready" }); } }, [isWaiting]);
-  useEffect(() => { if (!currentParticipant || !stream) return; stream.getAudioTracks().forEach((track) => { track.enabled = !currentParticipant.is_muted; }); stream.getVideoTracks().forEach((track) => { track.enabled = currentParticipant.is_video_on; }); setMuted(currentParticipant.is_muted); setVideoOn(currentParticipant.is_video_on); }, [currentParticipant?.is_muted, currentParticipant?.is_video_on, stream]);
   useEffect(() => { const track = stream?.getAudioTracks()[0]; if (!track || muted) { setInputLevel(0); return; } const context = new AudioContext(); const analyser = context.createAnalyser(); analyser.fftSize = 256; context.createMediaStreamSource(new MediaStream([track])).connect(analyser); const samples = new Uint8Array(analyser.frequencyBinCount); let frame = 0; const measure = () => { analyser.getByteTimeDomainData(samples); const average = samples.reduce((total, sample) => total + Math.abs(sample - 128), 0) / samples.length; setInputLevel(Math.min(1, average / 32)); frame = requestAnimationFrame(measure); }; measure(); return () => { cancelAnimationFrame(frame); context.close(); }; }, [stream, muted]);
 
   function mediaMessage(error: unknown, device: string) { const name = error instanceof DOMException ? error.name : "Unknown error"; if (error instanceof DOMException && error.name === "NotFoundError") return `No ${device} device was found (${name}).`; if (error instanceof DOMException && error.name === "NotReadableError") return `Your ${device} is busy in another app or browser tab (${name}).`; if (error instanceof DOMException && error.name === "NotAllowedError") return `${device[0].toUpperCase()}${device.slice(1)} access is blocked. Check this browser site permission and macOS Privacy & Security (${name}).`; return `Could not start your ${device} (${name}).`; }
   async function requestTracks(constraints: MediaStreamConstraints, device: string) { if (!window.isSecureContext) { setMediaError(`${device[0].toUpperCase()}${device.slice(1)} access requires HTTPS when this meeting is opened through a Wi-Fi IP address. Use localhost on this Mac, or the deployed HTTPS URL on a phone.`); return false; } if (!navigator.mediaDevices?.getUserMedia) { setMediaError("This browser does not expose microphone or camera access."); return false; } try { setMediaError(""); const incoming = await navigator.mediaDevices.getUserMedia(constraints); const next = streamRef.current ?? new MediaStream(); incoming.getTracks().forEach((track) => { next.getTracks().filter((existing) => existing.kind === track.kind).forEach((existing) => { next.removeTrack(existing); existing.stop(); }); next.addTrack(track); }); streamRef.current = next; setStream(next); peers.current.forEach((_, peerId) => offerPeer(peerId).catch(() => undefined)); return true; } catch (error) { setMediaError(mediaMessage(error, device)); return false; } }
-  function enableRemoteAudio() { document.querySelectorAll<HTMLVideoElement>("video.camera-video").forEach((video) => { if (!video.muted) void video.play().catch(() => undefined); }); }
-  async function toggleMute() { enableRemoteAudio(); if (!stream?.getAudioTracks().length) { const started = await requestTracks({ audio: true }, "microphone"); if (!started) return; setMuted(false); if (participantId) await api.updateMedia(meeting.meeting_id, participantId, { is_muted: false }).catch(() => undefined); return; } const nextMuted = !muted; stream.getAudioTracks().forEach((track) => { track.enabled = !nextMuted; }); setMuted(nextMuted); if (participantId) await api.updateMedia(meeting.meeting_id, participantId, { is_muted: nextMuted }).catch(() => undefined); }
-  async function toggleVideo() { if (!stream?.getVideoTracks().length) { const started = await requestTracks({ video: true }, "camera"); if (!started) return; setVideoOn(true); if (participantId) await api.updateMedia(meeting.meeting_id, participantId, { is_video_on: true }).catch(() => undefined); return; } const nextVideoOn = !videoOn; stream.getVideoTracks().forEach((track) => { track.enabled = nextVideoOn; }); setVideoOn(nextVideoOn); if (participantId) await api.updateMedia(meeting.meeting_id, participantId, { is_video_on: nextVideoOn }).catch(() => undefined); }
+  function enableRemoteAudio() { document.querySelectorAll<HTMLVideoElement>("video.camera-video, video.shared-video").forEach((video) => { if (!video.muted) void video.play().catch(() => undefined); }); }
+  async function toggleMute() { enableRemoteAudio(); if (!stream?.getAudioTracks().length) { const started = await requestTracks({ audio: true }, "microphone"); if (!started) return; setMuted(false); send({ type: "media_state", is_muted: false, is_video_on: videoOn }); if (participantId > 0) await api.updateMedia(meeting.meeting_id, participantId, { is_muted: false }).catch(() => undefined); return; } const nextMuted = !muted; stream.getAudioTracks().forEach((track) => { track.enabled = !nextMuted; }); setMuted(nextMuted); send({ type: "media_state", is_muted: nextMuted, is_video_on: videoOn }); if (participantId > 0) await api.updateMedia(meeting.meeting_id, participantId, { is_muted: nextMuted }).catch(() => undefined); }
+  async function toggleVideo() { enableRemoteAudio(); if (!stream?.getVideoTracks().length) { const started = await requestTracks({ video: true }, "camera"); if (!started) return; setVideoOn(true); send({ type: "media_state", is_muted: muted, is_video_on: true }); if (participantId > 0) await api.updateMedia(meeting.meeting_id, participantId, { is_video_on: true }).catch(() => undefined); return; } const nextVideoOn = !videoOn; stream.getVideoTracks().forEach((track) => { track.enabled = nextVideoOn; }); setVideoOn(nextVideoOn); send({ type: "media_state", is_muted: muted, is_video_on: nextVideoOn }); if (participantId > 0) await api.updateMedia(meeting.meeting_id, participantId, { is_video_on: nextVideoOn }).catch(() => undefined); }
   async function toggleShare() {
+    enableRemoteAudio();
     if (shareStream) {
       shareStream.getTracks().forEach((track) => track.stop());
-      const camera = streamRef.current?.getVideoTracks()[0] ?? null;
-      peers.current.forEach((peer) => peer.getSenders().find((sender) => sender.track?.kind === "video")?.replaceTrack(camera));
+      const cameraTrack = streamRef.current?.getVideoTracks()[0] ?? null;
+      peers.current.forEach((peer) => {
+        const senders = peer.getSenders();
+        const videoSender = senders.find((s) => s.track?.kind === "video" || (!s.track && cameraTrack));
+        if (videoSender) void videoSender.replaceTrack(cameraTrack);
+      });
       setShareStream(null);
       setSharedBy(null);
       send({ type: "screen_share", sharing: false });
@@ -255,23 +301,29 @@ export function MeetingRoom({ meeting: initialMeeting, attendeeName, participant
       const display = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
       const displayTrack = display.getVideoTracks()[0];
       peers.current.forEach((peer, peerId) => {
-        const sender = peer.getSenders().find((item) => item.track?.kind === "video");
-        if (sender) sender.replaceTrack(displayTrack);
-        else {
+        const senders = peer.getSenders();
+        const videoSender = senders.find((s) => s.track?.kind === "video");
+        if (videoSender) {
+          void videoSender.replaceTrack(displayTrack);
+        } else {
           peer.addTrack(displayTrack, display);
           offerPeer(peerId).catch(() => undefined);
         }
       });
+      setShareStream(display);
       setSharedBy(clientId);
       send({ type: "screen_share", sharing: true, sender_name: isHost ? (user?.name ?? attendeeName) : attendeeName });
       displayTrack?.addEventListener("ended", () => {
-        const camera = streamRef.current?.getVideoTracks()[0] ?? null;
-        peers.current.forEach((peer) => peer.getSenders().find((sender) => sender.track?.kind === "video")?.replaceTrack(camera));
+        const cameraTrack = streamRef.current?.getVideoTracks()[0] ?? null;
+        peers.current.forEach((peer) => {
+          const senders = peer.getSenders();
+          const videoSender = senders.find((s) => s.track === displayTrack || s.track?.kind === "video");
+          if (videoSender) void videoSender.replaceTrack(cameraTrack);
+        });
         setShareStream(null);
         setSharedBy(null);
         send({ type: "screen_share", sharing: false });
       });
-      setShareStream(display);
     } catch {
       setMediaError("Screen sharing was cancelled or unavailable.");
     }
@@ -344,21 +396,29 @@ export function MeetingRoom({ meeting: initialMeeting, attendeeName, participant
 
       <section className="video-area">
         <div className="stage-wrap">
-          {shareStream && (
+          {shareStream ? (
             <div className="screen-stage">
               <StreamVideo stream={shareStream} muted className="shared-video" />
               <span>Sharing your screen</span>
             </div>
-          )}
-          <div className={`tile-grid ${shareStream ? "with-share" : ""}`}>
+          ) : (sharedBy && sharedBy !== clientId && remoteStreams[sharedBy]) ? (
+            <div className="screen-stage">
+              <StreamVideo stream={remoteStreams[sharedBy]} muted={false} className="shared-video" />
+              <span>{tiles.find((p) => participantKey(p) === sharedBy)?.display_name ?? "Someone"}&apos;s screen</span>
+            </div>
+          ) : null}
+          <div className={`tile-grid ${shareStream || (sharedBy && remoteStreams[sharedBy]) ? "with-share" : ""}`}>
             {tiles.map((participant, index) => {
               const key = participantKey(participant);
               const self = key === clientId;
               const videoStream = self ? stream : remoteStreams[key] ?? null;
-              const isScreenSharing = (self && Boolean(shareStream)) || sharedBy === key || Boolean(videoStream?.getVideoTracks()[0]?.label?.toLowerCase().match(/screen|display|window|tab|capture/));
+              const mediaState = self
+                ? { is_muted: muted, is_video_on: videoOn }
+                : (remoteMediaStates[key] ?? { is_muted: participant.is_muted, is_video_on: participant.is_video_on });
+              const isScreenSharing = (self && Boolean(shareStream)) || sharedBy === key;
               return (
                 <div key={`tile-${key}-${index}`} className={`video-tile ${index === 0 ? "active-speaker" : ""}`}>
-                  {videoStream && (self ? (shareStream ? true : videoOn) : participant.is_video_on) ? (
+                  {videoStream && (self ? (shareStream ? true : videoOn) : mediaState.is_video_on) ? (
                     <StreamVideo stream={videoStream} muted={self} className={isScreenSharing ? "shared-video" : "camera-video"} />
                   ) : (
                     <div className="tile-avatar" style={{ background: colors[index % colors.length] }}>
@@ -371,7 +431,7 @@ export function MeetingRoom({ meeting: initialMeeting, attendeeName, participant
                       {participant.role === "host" && <em>Host</em>}
                       {participant.is_hand_raised && <Hand className="hand-indicator" size={15} />}
                     </span>
-                    {(self ? muted : participant.is_muted) ? <MicOff size={16} /> : <Mic size={16} />}
+                    {mediaState.is_muted ? <MicOff size={16} /> : <Mic size={16} />}
                   </div>
                 </div>
               );

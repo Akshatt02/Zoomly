@@ -7,13 +7,16 @@ import type { Meeting } from "@/lib/types";
 
 function formatDate(date: string | null) {
   if (!date) return "Started recently";
-  return new Intl.DateTimeFormat("en", {
+  const isoStr = date.endsWith("Z") || date.includes("+") ? date : date + "Z";
+  return new Intl.DateTimeFormat("en-US", {
     weekday: "short",
     month: "short",
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
-  }).format(new Date(date));
+    hour12: true,
+    timeZone: "Asia/Kolkata",
+  }).format(new Date(isoStr));
 }
 
 interface MeetingCardProps {

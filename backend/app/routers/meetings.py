@@ -266,6 +266,17 @@ async def meeting_socket(websocket: WebSocket, meeting_id: str) -> None:
                     {"type": "screen_share", "sharing": payload.get("sharing", False), "client_id": client_id, "sender_name": payload.get("sender_name", "")},
                     exclude_client_id=client_id,
                 )
+            elif payload.get("type") == "media_state":
+                await meeting_connections.broadcast(
+                    meeting_id,
+                    {
+                        "type": "media_state",
+                        "client_id": client_id,
+                        "is_muted": payload.get("is_muted", False),
+                        "is_video_on": payload.get("is_video_on", True),
+                    },
+                    exclude_client_id=client_id,
+                )
     except WebSocketDisconnect:
         meeting_connections.disconnect(meeting_id, client_id)
         await meeting_connections.broadcast(meeting_id, {"type": "peer_left", "client_id": client_id})
