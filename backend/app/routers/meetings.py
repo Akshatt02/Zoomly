@@ -3,37 +3,54 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from ..database import SessionLocal, get_db
-from ..models import ChatMessage, Meeting, Participant, utc_now
+from ..models import ChatMessage, Meeting, Participant, User, utc_now
 from ..realtime import meeting_connections
-from ..schemas import ChatCreate, ChatMessageOut, DashboardOut, JoinCreate, MeetingCreate, MeetingOut, ParticipantMediaUpdate, ParticipantOut, ScheduleCreate
+from ..routers.auth import get_current_user
+from ..schemas import ChatCreate, ChatMessageOut, DashboardOut, JoinCreate, MeetingCreate, MeetingOut, ParticipantMediaUpdate, ParticipantOut, ScheduleCreate, UserOut
 from ..services.meetings import create_meeting, get_default_user, get_meeting_or_404, list_recent, list_upcoming, meeting_out
 
 router = APIRouter(prefix="/api", tags=["meetings"])
 
 
+def _resolve_host(db: Session, current_user: User | None) -> User:
+    """Return the authenticated user, or fall back to the system default user."""
+    if current_user:
+        return current_user
+    return get_default_user(db)
+
+
 @router.get("/dashboard", response_model=DashboardOut)
-def dashboard(db: Session = Depends(get_db)):
-    return {"user": get_default_user(db), "upcoming_meetings": [meeting_out(m) for m in list_upcoming(db)], "recent_meetings": [meeting_out(m) for m in list_recent(db)]}
+def dashboard(db: Session = Depends(get_db), current_user: User | None = Depends(get_current_user)):
+    user = _resolve_host(db, current_user)
+    return {
+        "user": UserOut.model_validate(user),
+        "upcoming_meetings": [meeting_out(m) for m in list_upcoming(db, host_id=user.id)],
+        "recent_meetings": [meeting_out(m) for m in list_recent(db, host_id=user.id)],
+    }
 
 
 @router.post("/meetings", response_model=MeetingOut, status_code=status.HTTP_201_CREATED)
-def instant_meeting(payload: MeetingCreate, db: Session = Depends(get_db)):
-    return meeting_out(create_meeting(db, payload.title, "instant"))
+def instant_meeting(payload: MeetingCreate, db: Session = Depends(get_db), current_user: User | None = Depends(get_current_user)):
+    host = _resolve_host(db, current_user)
+    return meeting_out(create_meeting(db, payload.title, "instant", host_id=host.id))
 
 
 @router.post("/meetings/schedule", response_model=MeetingOut, status_code=status.HTTP_201_CREATED)
-def schedule_meeting(payload: ScheduleCreate, db: Session = Depends(get_db)):
-    return meeting_out(create_meeting(db, payload.title, "scheduled", payload.description, payload.scheduled_at, payload.duration))
+def schedule_meeting(payload: ScheduleCreate, db: Session = Depends(get_db), current_user: User | None = Depends(get_current_user)):
+    host = _resolve_host(db, current_user)
+    return meeting_out(create_meeting(db, payload.title, "scheduled", payload.description, payload.scheduled_at, payload.duration, host_id=host.id))
 
 
 @router.get("/meetings/upcoming", response_model=list[MeetingOut])
-def upcoming_meetings(db: Session = Depends(get_db)):
-    return [meeting_out(m) for m in list_upcoming(db)]
+def upcoming_meetings(db: Session = Depends(get_db), current_user: User | None = Depends(get_current_user)):
+    user = _resolve_host(db, current_user)
+    return [meeting_out(m) for m in list_upcoming(db, host_id=user.id)]
 
 
 @router.get("/meetings/recent", response_model=list[MeetingOut])
-def recent_meetings(db: Session = Depends(get_db)):
-    return [meeting_out(m) for m in list_recent(db)]
+def recent_meetings(db: Session = Depends(get_db), current_user: User | None = Depends(get_current_user)):
+    user = _resolve_host(db, current_user)
+    return [meeting_out(m) for m in list_recent(db, host_id=user.id)]
 
 
 @router.get("/meetings/{meeting_id}", response_model=MeetingOut)
@@ -46,7 +63,12 @@ async def join_meeting(meeting_id: str, payload: JoinCreate, db: Session = Depen
     meeting = get_meeting_or_404(db, meeting_id)
     if meeting.is_locked:
         raise HTTPException(status_code=403, detail="This meeting is locked by its host")
-    participant = Participant(meeting_id=meeting.id, display_name=payload.display_name, role="participant", status="waiting" if meeting.waiting_room_enabled else "active")
+    participant = Participant(
+        meeting_id=meeting.id,
+        display_name=payload.display_name,
+        role="participant",
+        status="waiting" if meeting.waiting_room_enabled else "active",
+    )
     db.add(participant)
     db.commit()
     db.refresh(participant)
@@ -227,6 +249,12 @@ async def meeting_socket(websocket: WebSocket, meeting_id: str) -> None:
                 signal = payload.get("signal")
                 if target_id and isinstance(signal, dict) and signal.get("type") in {"offer", "answer", "candidate"}:
                     await meeting_connections.send_to(meeting_id, target_id, {"type": "signal", "sender_id": client_id, "signal": signal})
+            elif payload.get("type") == "screen_share":
+                await meeting_connections.broadcast(
+                    meeting_id,
+                    {"type": "screen_share", "sharing": payload.get("sharing", False), "client_id": client_id, "sender_name": payload.get("sender_name", "")},
+                    exclude_client_id=client_id,
+                )
     except WebSocketDisconnect:
         meeting_connections.disconnect(meeting_id, client_id)
         await meeting_connections.broadcast(meeting_id, {"type": "peer_left", "client_id": client_id})

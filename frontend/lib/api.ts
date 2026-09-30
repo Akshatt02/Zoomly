@@ -9,6 +9,7 @@ export const wsUrl = apiUrl.replace(/^http/, "ws");
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${apiUrl}${path}`, {
     ...init,
+    credentials: "include",
     headers: { "Content-Type": "application/json", ...init?.headers },
     cache: "no-store",
   });

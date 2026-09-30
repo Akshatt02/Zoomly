@@ -7,19 +7,30 @@ import { AppShell } from "@/components/AppShell";
 import { MeetingCard } from "@/components/MeetingCard";
 import { Toast } from "@/components/Toast";
 import { api } from "@/lib/api";
+import { useAuth } from "@/lib/authContext";
 import type { Dashboard, Meeting } from "@/lib/types";
 
 function DashboardContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { user, loading: authLoading } = useAuth();
   const [data, setData] = useState<Dashboard | null>(null);
   const [error, setError] = useState("");
   const [creating, setCreating] = useState(false);
   const [toast, setToast] = useState("");
   const [currentTime, setCurrentTime] = useState("");
 
+  // Redirect to login if not authenticated
   useEffect(() => {
-    api.dashboard().then(setData).catch((err) => setError(err.message));
+    if (!authLoading && !user) {
+      router.push("/login");
+    }
+  }, [user, authLoading, router]);
+
+  useEffect(() => {
+    if (user) {
+      api.dashboard().then(setData).catch((err) => setError(err.message));
+    }
 
     const updateTime = () => {
       setCurrentTime(
@@ -32,7 +43,7 @@ function DashboardContent() {
     updateTime();
     const interval = setInterval(updateTime, 10000);
     return () => clearInterval(interval);
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     if (searchParams.get("scheduled")) setToast("Meeting scheduled and added to your workspace.");
@@ -43,7 +54,7 @@ function DashboardContent() {
     setCreating(true);
     try {
       const meeting = await api.createInstant();
-      router.push(`/meeting/${meeting.meeting_id}?host=1&name=Akshat%20Jaipuriar`);
+      router.push(`/meeting/${meeting.meeting_id}?host=1&name=${encodeURIComponent(user?.name ?? "Host")}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not create instant meeting.");
     } finally {
@@ -70,6 +81,17 @@ function DashboardContent() {
       ? "Good afternoon"
       : "Good evening";
 
+  // Show a spinner while auth is loading or redirecting
+  if (authLoading || (!user && !authLoading)) {
+    return (
+      <AppShell>
+        <div className="loading-row">
+          <LoaderCircle className="spin" size={22} /> Checking session…
+        </div>
+      </AppShell>
+    );
+  }
+
   return (
     <AppShell>
       <div className="dashboard">
@@ -80,7 +102,7 @@ function DashboardContent() {
               <span>{todayFormatted}</span>
             </div>
             <h1>
-              {greeting}, {data?.user.name?.split(" ")[0] ?? "Akshat"}
+              {greeting}, {user?.name?.split(" ")[0] ?? "there"}
             </h1>
             <p className="subtitle">Ready to collaborate? Launch an instant video room or manage upcoming calls.</p>
           </div>
@@ -194,4 +216,3 @@ export default function DashboardPage() {
     </Suspense>
   );
 }
-

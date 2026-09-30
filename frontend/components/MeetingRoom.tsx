@@ -4,12 +4,12 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronDown, Copy, Hand, Lock, LockKeyholeOpen, MessageSquare, Mic, MicOff, MonitorUp, PhoneOff, Send, ShieldCheck, Users, Video, VideoOff, Volume2, X } from "lucide-react";
 import { api, wsUrl } from "@/lib/api";
+import { useAuth } from "@/lib/authContext";
 import type { Meeting, Participant } from "@/lib/types";
 
 type Signal = { type: "offer" | "answer" | "candidate"; sdp?: string; candidate?: RTCIceCandidateInit };
 type RoomMessage = { id: number; sender: string; senderId: string; recipientId: string | null; recipientName: string | null; body: string; sentAt: string };
 const colors = ["#2954d1", "#1d7868", "#9b4b1e", "#7849a7", "#a02c6b"];
-const host: Participant = { id: 0, display_name: "Akshat Jaipuriar", role: "host", is_muted: false, is_video_on: true, status: "active", is_hand_raised: false, joined_at: new Date().toISOString() };
 const initials = (name: string) => name.split(" ").map((word) => word[0]).slice(0, 2).join("").toUpperCase();
 const participantKey = (participant: Participant) => participant.id === 0 ? "host" : `participant-${participant.id}`;
 
@@ -21,7 +21,11 @@ function StreamVideo({ stream, muted, className }: { stream: MediaStream | null;
 
 export function MeetingRoom({ meeting: initialMeeting, attendeeName, participantId, isHost, startsWaiting }: { meeting: Meeting; attendeeName: string; participantId: number; isHost: boolean; startsWaiting: boolean }) {
   const router = useRouter();
+  const { user } = useAuth();
   const clientId = isHost ? "host" : `participant-${participantId}`;
+  // Use the authenticated user's name for the host tile, fall back to attendeeName
+  const hostDisplayName = isHost ? (user?.name ?? attendeeName) : attendeeName;
+  const host: Participant = { id: 0, display_name: hostDisplayName, role: "host", is_muted: false, is_video_on: true, status: "active", is_hand_raised: false, joined_at: new Date().toISOString() };
   const [meeting, setMeeting] = useState(initialMeeting);
   const [active, setActive] = useState<Participant[]>([]);
   const [waiting, setWaiting] = useState<Participant[]>([]);
@@ -221,7 +225,7 @@ export function MeetingRoom({ meeting: initialMeeting, attendeeName, participant
     }
   }
   async function leave() { if (participantId) await api.leave(meeting.meeting_id, participantId).catch(() => undefined); streamRef.current?.getTracks().forEach((track) => track.stop()); shareStream?.getTracks().forEach((track) => track.stop()); router.push("/?left=1"); }
-  async function sendChat(event: React.FormEvent) { event.preventDefault(); const body = draft.trim(); if (!body) return; const recipient = chatRecipient === "everyone" ? null : tiles.find((person) => participantKey(person) === chatRecipient) ?? null; try { appendMessage(await api.sendMessage(meeting.meeting_id, { sender: isHost ? "Akshat Jaipuriar" : attendeeName, sender_id: clientId, recipient_id: recipient ? participantKey(recipient) : null, recipient_name: recipient?.display_name ?? null, body })); setDraft(""); } catch { setMediaError("Your chat message could not be sent. Please try again."); } }
+  async function sendChat(event: React.FormEvent) { event.preventDefault(); const body = draft.trim(); if (!body) return; const recipient = chatRecipient === "everyone" ? null : tiles.find((person) => participantKey(person) === chatRecipient) ?? null; const senderName = isHost ? (user?.name ?? attendeeName) : attendeeName; try { appendMessage(await api.sendMessage(meeting.meeting_id, { sender: senderName, sender_id: clientId, recipient_id: recipient ? participantKey(recipient) : null, recipient_name: recipient?.display_name ?? null, body })); setDraft(""); } catch { setMediaError("Your chat message could not be sent. Please try again."); } }
   const tiles = [host, ...active];
   const hasAudio = Boolean(stream?.getAudioTracks().length);
   const audioLabel = hasAudio ? (muted ? "Unmute" : "Mute") : "Join Audio";

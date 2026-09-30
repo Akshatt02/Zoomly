@@ -5,7 +5,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..models import Meeting, Participant, User
+from ..models import Meeting, User
 
 DEFAULT_USER_EMAIL = "akshat.jaipuriar@zoom.local"
 LEGACY_DEFAULT_USER_EMAIL = "alex.morgan@zoom.local"
@@ -43,10 +43,20 @@ def get_default_user(db: Session) -> User:
     return user
 
 
-def create_meeting(db: Session, title: str, meeting_type: str, description: str = "", scheduled_at: datetime | None = None, duration: int = 40) -> Meeting:
+def create_meeting(
+    db: Session,
+    title: str,
+    meeting_type: str,
+    description: str = "",
+    scheduled_at: datetime | None = None,
+    duration: int = 40,
+    host_id: int | None = None,
+) -> Meeting:
+    if host_id is None:
+        host_id = get_default_user(db).id
     meeting = Meeting(
         meeting_id=create_unique_meeting_id(db),
-        host_id=get_default_user(db).id,
+        host_id=host_id,
         title=title,
         description=description,
         meeting_type=meeting_type,
@@ -68,16 +78,23 @@ def get_meeting_or_404(db: Session, meeting_id: str) -> Meeting:
     return meeting
 
 
-def list_upcoming(db: Session) -> list[Meeting]:
+def list_upcoming(db: Session, host_id: int | None = None) -> list[Meeting]:
     now = datetime.now(timezone.utc)
-    return list(db.scalars(select(Meeting).where(Meeting.scheduled_at.is_not(None), Meeting.scheduled_at >= now).order_by(Meeting.scheduled_at)).all())
+    query = select(Meeting).where(Meeting.scheduled_at.is_not(None), Meeting.scheduled_at >= now)
+    if host_id is not None:
+        query = query.where(Meeting.host_id == host_id)
+    return list(db.scalars(query.order_by(Meeting.scheduled_at)).all())
 
 
-def list_recent(db: Session) -> list[Meeting]:
-    return list(db.scalars(select(Meeting).where(Meeting.meeting_type == "instant").order_by(Meeting.created_at.desc()).limit(8)).all())
+def list_recent(db: Session, host_id: int | None = None) -> list[Meeting]:
+    query = select(Meeting).where(Meeting.meeting_type == "instant")
+    if host_id is not None:
+        query = query.where(Meeting.host_id == host_id)
+    return list(db.scalars(query.order_by(Meeting.created_at.desc()).limit(8)).all())
 
 
 def seed_database(db: Session) -> None:
+    """Ensure the legacy seeded user exists (migrated to new email), but create NO meetings."""
     legacy_user = db.scalar(select(User).where(User.email == LEGACY_DEFAULT_USER_EMAIL))
     if legacy_user:
         legacy_user.name = "Akshat Jaipuriar"
@@ -85,8 +102,8 @@ def seed_database(db: Session) -> None:
         db.commit()
         return
 
+    # Create the fallback system user only if no users exist at all
     if not db.scalar(select(User.id).where(User.email == DEFAULT_USER_EMAIL)):
         user = User(name="Akshat Jaipuriar", email=DEFAULT_USER_EMAIL, avatar=None)
         db.add(user)
         db.commit()
-

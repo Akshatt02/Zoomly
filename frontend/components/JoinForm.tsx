@@ -1,9 +1,10 @@
 "use client";
 
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { Camera, LoaderCircle, Video, VideoOff } from "lucide-react";
 import { api } from "@/lib/api";
+import { useAuth } from "@/lib/authContext";
 
 function PreviewVideo({ stream }: { stream: MediaStream }) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -20,6 +21,9 @@ function PreviewVideo({ stream }: { stream: MediaStream }) {
 
 export function JoinForm({ initialMeetingId = "" }: { initialMeetingId?: string }) {
   const router = useRouter();
+  const pathname = usePathname();
+  const { user, loading: authLoading } = useAuth();
+
   const [meetingId, setMeetingId] = useState(initialMeetingId);
   const [displayName, setDisplayName] = useState("");
   const [error, setError] = useState("");
@@ -28,6 +32,21 @@ export function JoinForm({ initialMeetingId = "" }: { initialMeetingId?: string 
   const [previewError, setPreviewError] = useState("");
 
   useEffect(() => setMeetingId(initialMeetingId), [initialMeetingId]);
+
+  // Pre-fill name from the logged-in user
+  useEffect(() => {
+    if (user && !displayName) {
+      setDisplayName(user.name);
+    }
+  }, [user]);
+
+  // Redirect to login if not authenticated
+  useEffect(() => {
+    if (!authLoading && !user) {
+      const currentUrl = pathname + (meetingId ? `?id=${meetingId}` : "");
+      router.push(`/login?redirect=${encodeURIComponent(currentUrl)}`);
+    }
+  }, [user, authLoading]);
 
   useEffect(() => {
     return () => {
@@ -70,15 +89,19 @@ export function JoinForm({ initialMeetingId = "" }: { initialMeetingId?: string 
 
   async function submit(event: FormEvent) {
     event.preventDefault();
+    if (!user) {
+      router.push(`/login?redirect=${encodeURIComponent(pathname)}`);
+      return;
+    }
     setError("");
     setJoining(true);
 
     try {
       await api.meeting(meetingId.trim());
-      const participant = await api.join(meetingId.trim(), displayName);
+      const participant = await api.join(meetingId.trim(), displayName || user.name);
       stream?.getTracks().forEach((track) => track.stop());
       router.push(
-        `/meeting/${meetingId.trim()}?name=${encodeURIComponent(displayName)}&participant=${
+        `/meeting/${meetingId.trim()}?name=${encodeURIComponent(displayName || user.name)}&participant=${
           participant.id
         }&waiting=${participant.status === "waiting" ? "1" : "0"}`
       );
@@ -89,12 +112,16 @@ export function JoinForm({ initialMeetingId = "" }: { initialMeetingId?: string 
     }
   }
 
+  if (authLoading) {
+    return <div className="loading-row"><LoaderCircle className="spin" size={20} /> Loading…</div>;
+  }
+
   return (
     <form className="form-card join-form" onSubmit={submit}>
       {stream && (
         <div className="prejoin-preview">
           <PreviewVideo stream={stream} />
-          <span>Camera & microphone active</span>
+          <span>Camera &amp; microphone active</span>
         </div>
       )}
 
