@@ -78,20 +78,15 @@ def list_recent(db: Session) -> list[Meeting]:
 
 
 def seed_database(db: Session) -> None:
-    if db.scalar(select(User.id).where(User.email == DEFAULT_USER_EMAIL)):
-        return
     legacy_user = db.scalar(select(User).where(User.email == LEGACY_DEFAULT_USER_EMAIL))
     if legacy_user:
         legacy_user.name = "Akshat Jaipuriar"
         legacy_user.email = DEFAULT_USER_EMAIL
         db.commit()
         return
-    user = User(name="Akshat Jaipuriar", email=DEFAULT_USER_EMAIL, avatar=None)
-    db.add(user)
-    db.commit()
-    from datetime import timedelta
-    now = datetime.now(timezone.utc)
-    for title, delta, duration in [("Design weekly", 1, 45), ("Product review", 2, 30), ("Team stand-up", 4, 25)]:
-        create_meeting(db, title, "scheduled", "A focused session for the team.", now + timedelta(days=delta, hours=2), duration)
-    for title in ["Client check-in", "Marketing sync", "Project kickoff"]:
-        create_meeting(db, title, "instant")
+
+    if not db.scalar(select(User.id).where(User.email == DEFAULT_USER_EMAIL)):
+        user = User(name="Akshat Jaipuriar", email=DEFAULT_USER_EMAIL, avatar=None)
+        db.add(user)
+        db.commit()
+
