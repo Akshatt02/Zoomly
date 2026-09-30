@@ -92,21 +92,6 @@ npm run dev
 
 Open `http://localhost:3000`. Set `NEXT_PUBLIC_API_URL` for the API. Set `DATABASE_URL` and `FRONTEND_ORIGIN` on the API. `localhost` and `127.0.0.1` are allowed by default.
 
-## Two-person Demo
-
-Use two browser profiles or devices so one camera/mic is not claimed by two tabs.
-
-1. Start the API with `uvicorn app.main:app --host 0.0.0.0 --port 8000` and the frontend with `npm run dev -- --hostname 0.0.0.0 --port 3000`.
-2. On the host machine, open `http://YOUR_LAN_IP:3000` (macOS: `ipconfig getifaddr en0`; Windows: `ipconfig`).
-3. Sign in, create a meeting, click **Copy invite**, and open the link on another device on the same network.
-4. Join as a guest. The host admits them from **Participants**.
-5. Turn camera on, share a **window or screen other than the meeting tab**, and confirm:
-   - the shared window fills the large stage
-   - each person’s camera stays in the tiles under the stage
-6. Unmute and watch the input meter, test the speaker, chat, raise a hand, and try host mute/remove/lock/end.
-
-HTTPS (or localhost) is required for camera, microphone, and screen share.
-
 ## Deployment
 
 Deploy the FastAPI backend from `render.yaml` as a Render Blueprint. Set `FRONTEND_ORIGIN_REGEX` to the exact frontend origin. The free SQLite file is ephemeral unless you attach a disk or switch to PostgreSQL.
@@ -129,17 +114,3 @@ pytest
 cd ../frontend
 npm run build
 ```
-
-## Interview Notes
-
-1. **Why Next.js?** App Router gives clear routes and a straightforward production build.
-2. **Why FastAPI?** Pydantic, OpenAPI, and dependency injection fit a small REST + WebSocket service.
-3. **Why SQLite?** Zero-config for an assessment; SQLAlchemy keeps a later Postgres move practical.
-4. **How does auth work?** Register/login issue a JWT stored in `localStorage` and sent as Bearer; an httpOnly cookie is a same-origin fallback.
-5. **How are meeting IDs safe?** Ten random digits from `secrets`, uniqueness checked before insert.
-6. **How are invite links protected?** Each meeting has a URL-safe token used on the join path.
-7. **Why a service layer?** Meeting lifecycle stays out of the HTTP routers and stays testable.
-8. **How is a join validated?** The API loads the meeting first and returns 404 for unknown IDs.
-9. **How does media stay in the right tile?** Camera uses the getUserMedia stream; screen share adds a second sender. Remote tracks are classified by stream id / extra video track so the stage never plays the webcam.
-10. **How would you scale media?** Keep the meeting model and signalling, add STUN/TURN and an SFU instead of a full mesh.
-11. **How would you scale persistence?** Point SQLAlchemy at PostgreSQL, add migrations, and tighten uniqueness in transactions.
