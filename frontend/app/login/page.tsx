@@ -178,14 +178,6 @@ function LoginForm() {
             </button>
           </form>
 
-          {/* Quick Demo Helper */}
-          <div className="demo-fill-box">
-            <span>Want to test quickly?</span>
-            <button type="button" onClick={handleDemoFill} className="demo-fill-btn">
-              <Sparkles size={14} /> Fill Demo Credentials
-            </button>
-          </div>
-
           <div className="auth-divider">
             <span>Or</span>
           </div>
