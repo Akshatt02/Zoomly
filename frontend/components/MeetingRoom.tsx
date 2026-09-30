@@ -241,7 +241,41 @@ export function MeetingRoom({ meeting: initialMeeting, attendeeName, participant
   function enableRemoteAudio() { document.querySelectorAll<HTMLVideoElement>("video.camera-video").forEach((video) => { if (!video.muted) void video.play().catch(() => undefined); }); }
   async function toggleMute() { enableRemoteAudio(); if (!stream?.getAudioTracks().length) { const started = await requestTracks({ audio: true }, "microphone"); if (!started) return; setMuted(false); if (participantId) await api.updateMedia(meeting.meeting_id, participantId, { is_muted: false }).catch(() => undefined); return; } const nextMuted = !muted; stream.getAudioTracks().forEach((track) => { track.enabled = !nextMuted; }); setMuted(nextMuted); if (participantId) await api.updateMedia(meeting.meeting_id, participantId, { is_muted: nextMuted }).catch(() => undefined); }
   async function toggleVideo() { if (!stream?.getVideoTracks().length) { const started = await requestTracks({ video: true }, "camera"); if (!started) return; setVideoOn(true); if (participantId) await api.updateMedia(meeting.meeting_id, participantId, { is_video_on: true }).catch(() => undefined); return; } const nextVideoOn = !videoOn; stream.getVideoTracks().forEach((track) => { track.enabled = nextVideoOn; }); setVideoOn(nextVideoOn); if (participantId) await api.updateMedia(meeting.meeting_id, participantId, { is_video_on: nextVideoOn }).catch(() => undefined); }
-  async function toggleShare() { if (shareStream) { shareStream.getTracks().forEach((track) => track.stop()); const camera = streamRef.current?.getVideoTracks()[0] ?? null; peers.current.forEach((peer) => peer.getSenders().find((sender) => sender.track?.kind === "video")?.replaceTrack(camera)); setShareStream(null); return; } try { const display = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false }); const displayTrack = display.getVideoTracks()[0]; peers.current.forEach((peer, peerId) => { const sender = peer.getSenders().find((item) => item.track?.kind === "video"); if (sender) sender.replaceTrack(displayTrack); else { peer.addTrack(displayTrack, display); offerPeer(peerId).catch(() => undefined); } }); displayTrack?.addEventListener("ended", () => { const camera = streamRef.current?.getVideoTracks()[0] ?? null; peers.current.forEach((peer) => peer.getSenders().find((sender) => sender.track?.kind === "video")?.replaceTrack(camera)); setShareStream(null); }); setShareStream(display); } catch { setMediaError("Screen sharing was cancelled or unavailable."); } }
+  async function toggleShare() {
+    if (shareStream) {
+      shareStream.getTracks().forEach((track) => track.stop());
+      const camera = streamRef.current?.getVideoTracks()[0] ?? null;
+      peers.current.forEach((peer) => peer.getSenders().find((sender) => sender.track?.kind === "video")?.replaceTrack(camera));
+      setShareStream(null);
+      setSharedBy(null);
+      send({ type: "screen_share", sharing: false });
+      return;
+    }
+    try {
+      const display = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+      const displayTrack = display.getVideoTracks()[0];
+      peers.current.forEach((peer, peerId) => {
+        const sender = peer.getSenders().find((item) => item.track?.kind === "video");
+        if (sender) sender.replaceTrack(displayTrack);
+        else {
+          peer.addTrack(displayTrack, display);
+          offerPeer(peerId).catch(() => undefined);
+        }
+      });
+      setSharedBy(clientId);
+      send({ type: "screen_share", sharing: true, sender_name: isHost ? (user?.name ?? attendeeName) : attendeeName });
+      displayTrack?.addEventListener("ended", () => {
+        const camera = streamRef.current?.getVideoTracks()[0] ?? null;
+        peers.current.forEach((peer) => peer.getSenders().find((sender) => sender.track?.kind === "video")?.replaceTrack(camera));
+        setShareStream(null);
+        setSharedBy(null);
+        send({ type: "screen_share", sharing: false });
+      });
+      setShareStream(display);
+    } catch {
+      setMediaError("Screen sharing was cancelled or unavailable.");
+    }
+  }
   function testSpeaker() { try { enableRemoteAudio(); const context = new AudioContext(); const oscillator = context.createOscillator(); const gain = context.createGain(); oscillator.frequency.value = 660; gain.gain.setValueAtTime(0.0001, context.currentTime); gain.gain.exponentialRampToValueAtTime(0.12, context.currentTime + 0.02); gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.22); oscillator.connect(gain).connect(context.destination); oscillator.start(); oscillator.stop(context.currentTime + 0.24); window.setTimeout(() => context.close(), 320); } catch { setMediaError("Could not play the speaker test. Check your system output device."); } }
   async function copyInvite() {
     const inviteLink = `${window.location.origin}${meeting.invite_url}`;
@@ -321,10 +355,11 @@ export function MeetingRoom({ meeting: initialMeeting, attendeeName, participant
               const key = participantKey(participant);
               const self = key === clientId;
               const videoStream = self ? stream : remoteStreams[key] ?? null;
+              const isScreenSharing = (self && Boolean(shareStream)) || sharedBy === key || Boolean(videoStream?.getVideoTracks()[0]?.label?.toLowerCase().match(/screen|display|window|tab|capture/));
               return (
                 <div key={`tile-${key}-${index}`} className={`video-tile ${index === 0 ? "active-speaker" : ""}`}>
-                  {videoStream && (self ? videoOn : participant.is_video_on) ? (
-                    <StreamVideo stream={videoStream} muted={self} className="camera-video" />
+                  {videoStream && (self ? (shareStream ? true : videoOn) : participant.is_video_on) ? (
+                    <StreamVideo stream={videoStream} muted={self} className={isScreenSharing ? "shared-video" : "camera-video"} />
                   ) : (
                     <div className="tile-avatar" style={{ background: colors[index % colors.length] }}>
                       {initials(participant.display_name)}
