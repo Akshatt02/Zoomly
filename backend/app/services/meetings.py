@@ -1,5 +1,5 @@
 import secrets
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -81,18 +81,50 @@ def get_meeting_or_404(db: Session, meeting_id: str) -> Meeting:
 
 
 def list_upcoming(db: Session, host_id: int | None = None) -> list[Meeting]:
-    now = datetime.now(timezone.utc)
-    query = select(Meeting).where(Meeting.scheduled_at.is_not(None), Meeting.scheduled_at >= now)
+    """Return scheduled meetings whose window (start + duration) hasn't ended yet."""
+    now = datetime.utcnow()  # naive UTC — matches how SQLite stores datetimes
+    # Fetch any scheduled meeting from up to MAX_DURATION minutes ago so we can
+    # filter in Python using the actual end time (scheduled_at + duration).
+    MAX_DURATION_MINUTES = 480
+    window_cutoff = now - timedelta(minutes=MAX_DURATION_MINUTES)
+    query = select(Meeting).where(
+        Meeting.meeting_type == "scheduled",
+        Meeting.scheduled_at.is_not(None),
+        Meeting.scheduled_at >= window_cutoff,
+    )
     if host_id is not None:
         query = query.where(Meeting.host_id == host_id)
-    return list(db.scalars(query.order_by(Meeting.scheduled_at)).all())
+    meetings = list(db.scalars(query.order_by(Meeting.scheduled_at)).all())
+    # Keep only meetings whose end time (start + duration) is still in the future.
+    return [m for m in meetings if m.scheduled_at + timedelta(minutes=m.duration) >= now]
 
 
 def list_recent(db: Session, host_id: int | None = None) -> list[Meeting]:
-    query = select(Meeting).where(Meeting.meeting_type == "instant")
+    """Return recent instant meetings + past scheduled meetings that have ended."""
+    now = datetime.utcnow()  # naive UTC — matches how SQLite stores datetimes
+
+    # Instant meetings (always show in recent)
+    q_instant = select(Meeting).where(Meeting.meeting_type == "instant")
     if host_id is not None:
-        query = query.where(Meeting.host_id == host_id)
-    return list(db.scalars(query.order_by(Meeting.created_at.desc()).limit(8)).all())
+        q_instant = q_instant.where(Meeting.host_id == host_id)
+    instant = list(db.scalars(q_instant.order_by(Meeting.created_at.desc()).limit(20)).all())
+
+    # Scheduled meetings from last 30 days
+    since = now - timedelta(days=30)
+    q_sched = select(Meeting).where(
+        Meeting.meeting_type == "scheduled",
+        Meeting.scheduled_at.is_not(None),
+        Meeting.scheduled_at >= since,
+    )
+    if host_id is not None:
+        q_sched = q_sched.where(Meeting.host_id == host_id)
+    scheduled_all = list(db.scalars(q_sched.order_by(Meeting.scheduled_at.desc()).limit(40)).all())
+    # Only include scheduled meetings whose window has fully ended
+    past_scheduled = [m for m in scheduled_all if m.scheduled_at + timedelta(minutes=m.duration) < now]
+
+    # Merge, sort by most-recent first, cap at 8
+    combined = sorted(instant + past_scheduled, key=lambda m: m.scheduled_at or m.created_at, reverse=True)
+    return combined[:8]
 
 
 def seed_database(db: Session) -> None:
