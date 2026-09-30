@@ -62,6 +62,14 @@ function DashboardContent() {
     day: "numeric",
   }).format(new Date());
 
+  const currentHour = new Date().getHours();
+  const greeting =
+    currentHour < 12
+      ? "Good morning"
+      : currentHour < 18
+      ? "Good afternoon"
+      : "Good evening";
+
   return (
     <AppShell>
       <div className="dashboard">
@@ -71,9 +79,12 @@ function DashboardContent() {
               <span className="live-dot" />
               <span>{todayFormatted}</span>
             </div>
-            <h1>Good afternoon, {data?.user.name?.split(" ")[0] ?? "Akshat"}</h1>
+            <h1>
+              {greeting}, {data?.user.name?.split(" ")[0] ?? "Akshat"}
+            </h1>
             <p className="subtitle">Ready to collaborate? Launch an instant video room or manage upcoming calls.</p>
           </div>
+
           <div className="time-card">
             <Clock size={18} className="time-icon" />
             <span>{currentTime || "12:00 PM"}</span>
