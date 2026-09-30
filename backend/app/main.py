@@ -10,21 +10,30 @@ from .routers.meetings import router
 from .services.meetings import seed_database
 
 app = FastAPI(title="Zoomly API", version="1.0.0")
-origins = [origin.strip() for origin in os.getenv("FRONTEND_ORIGIN", "http://localhost:3000,http://127.0.0.1:3000").split(",")]
+
+raw_origins = os.getenv("FRONTEND_ORIGIN", "http://localhost:3000,http://127.0.0.1:3000").split(",")
+origins = []
+for origin in raw_origins:
+    cleaned = origin.strip().rstrip("/")
+    if cleaned:
+        origins.append(cleaned)
+        origins.append(f"{cleaned}/")
+
 origin_regex = os.getenv(
     "FRONTEND_ORIGIN_REGEX",
-    r"^https?://(?:localhost|127\.0\.0\.1|192\.168\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3})(?::\d+)?$",
+    r"^https?://(?:[a-zA-Z0-9-]+\.vercel\.app|localhost|127\.0\.0\.1|192\.168\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3})(?::\d+)?/?$",
 )
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
-    # Permit devices on the same private Wi-Fi network during a local demo.
     allow_origin_regex=origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 app.include_router(router)
+
 
 
 @app.on_event("startup")
