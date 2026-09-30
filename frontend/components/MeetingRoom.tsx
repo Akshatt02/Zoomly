@@ -76,10 +76,47 @@ export function MeetingRoom({ meeting: initialMeeting, attendeeName, participant
   function getPeer(peerId: string) {
     const existing = peers.current.get(peerId);
     if (existing) return existing;
-    const peer = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
-    peer.onicecandidate = (event) => { if (event.candidate) send({ type: "signal", target_id: peerId, signal: { type: "candidate", candidate: event.candidate.toJSON() } }); };
-    peer.ontrack = (event) => { const remote = event.streams[0] ?? new MediaStream([event.track]); setRemoteStreams((items) => ({ ...items, [peerId]: remote })); };
-    peer.onconnectionstatechange = () => { if (["failed", "closed"].includes(peer.connectionState)) { peers.current.delete(peerId); setRemoteStreams((items) => { const next = { ...items }; delete next[peerId]; return next; }); } };
+    const peer = new RTCPeerConnection({
+      iceServers: [
+        { urls: "stun:stun.l.google.com:19302" },
+        { urls: "stun:stun1.l.google.com:19302" },
+        { urls: "stun:stun2.l.google.com:19302" },
+      ],
+    });
+
+    peer.onicecandidate = (event) => {
+      if (event.candidate) send({ type: "signal", target_id: peerId, signal: { type: "candidate", candidate: event.candidate.toJSON() } });
+    };
+
+    peer.ontrack = (event) => {
+      setRemoteStreams((items) => {
+        const existing = items[peerId];
+        const tracks = existing ? existing.getTracks().slice() : [];
+        if (event.track && !tracks.some((t) => t.id === event.track.id)) {
+          tracks.push(event.track);
+        }
+        if (event.streams[0]) {
+          event.streams[0].getTracks().forEach((t) => {
+            if (!tracks.some((existingTrack) => existingTrack.id === t.id)) {
+              tracks.push(t);
+            }
+          });
+        }
+        return { ...items, [peerId]: new MediaStream(tracks) };
+      });
+    };
+
+    peer.onconnectionstatechange = () => {
+      if (["failed", "closed"].includes(peer.connectionState)) {
+        peers.current.delete(peerId);
+        setRemoteStreams((items) => {
+          const next = { ...items };
+          delete next[peerId];
+          return next;
+        });
+      }
+    };
+
     peers.current.set(peerId, peer);
     attachLocalTracks(peer);
     return peer;
@@ -96,7 +133,10 @@ export function MeetingRoom({ meeting: initialMeeting, attendeeName, participant
 
   async function handleSignal(peerId: string, signal: Signal) {
     const peer = getPeer(peerId);
-    if (signal.type === "candidate" && signal.candidate) { await peer.addIceCandidate(signal.candidate); return; }
+    if (signal.type === "candidate" && signal.candidate) {
+      await peer.addIceCandidate(signal.candidate).catch(() => undefined);
+      return;
+    }
     if (signal.type === "offer" && signal.sdp) {
       await peer.setRemoteDescription({ type: "offer", sdp: signal.sdp });
       attachLocalTracks(peer);
@@ -104,12 +144,17 @@ export function MeetingRoom({ meeting: initialMeeting, attendeeName, participant
       await peer.setLocalDescription(answer);
       send({ type: "signal", target_id: peerId, signal: { type: "answer", sdp: answer.sdp } });
     }
-    if (signal.type === "answer" && signal.sdp) await peer.setRemoteDescription({ type: "answer", sdp: signal.sdp });
+    if (signal.type === "answer" && signal.sdp) {
+      await peer.setRemoteDescription({ type: "answer", sdp: signal.sdp });
+    }
   }
 
   useEffect(() => {
     streamRef.current = stream;
-    peers.current.forEach((peer) => attachLocalTracks(peer));
+    peers.current.forEach((peer, peerId) => {
+      attachLocalTracks(peer);
+      offerPeer(peerId).catch(() => undefined);
+    });
   }, [stream]);
 
   useEffect(() => {
@@ -123,7 +168,13 @@ export function MeetingRoom({ meeting: initialMeeting, attendeeName, participant
       else if (payload.type === "peer_joined") offerPeer(payload.client_id).catch(() => undefined);
       else if (payload.type === "peer_left") { peers.current.get(payload.client_id)?.close(); peers.current.delete(payload.client_id); setRemoteStreams((items) => { const next = { ...items }; delete next[payload.client_id]; return next; }); }
       else if (payload.type === "signal") handleSignal(payload.sender_id, payload.signal).catch(() => undefined);
-      else refresh().catch(() => undefined);
+      else if (payload.type === "screen_share") {
+        if (payload.sharing) {
+          setSharedBy(payload.sender_name || payload.client_id);
+        } else {
+          setSharedBy(null);
+        }
+      } else refresh().catch(() => undefined);
     };
     return () => { ws.close(); peers.current.forEach((peer) => peer.close()); peers.current.clear(); streamRef.current?.getTracks().forEach((track) => track.stop()); shareStream?.getTracks().forEach((track) => track.stop()); };
   }, []);
@@ -435,8 +486,8 @@ export function MeetingRoom({ meeting: initialMeeting, attendeeName, participant
           )}
         </div>
 
-        <button className="leave-button" onClick={leave}>
-          <span>Leave</span>
+        <button className={`leave-button ${isHost ? "end-button" : ""}`} onClick={leave}>
+          <span>{isHost ? "End Meeting" : "Leave"}</span>
           <PhoneOff size={16} />
         </button>
       </footer>
