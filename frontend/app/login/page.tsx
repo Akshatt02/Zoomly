@@ -45,12 +45,6 @@ function LoginForm() {
     }
   }
 
-  function handleDemoFill() {
-    setEmail("alex@zoomly.com");
-    setPassword("password123");
-    setError("");
-  }
-
   return (
     <div className="auth-page">
       {/* Background ambient lighting */}
