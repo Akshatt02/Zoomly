@@ -168,7 +168,9 @@ function DashboardContent() {
           ) : data.upcoming_meetings.length ? (
             <div className="meeting-list">
               {data.upcoming_meetings.map((meeting) => (
-                <MeetingCard key={meeting.id} meeting={meeting} onCopy={copyInvite} />
+                // upcoming_meetings are filtered server-side to host_id=user.id
+                // so every card here belongs to the logged-in host
+                <MeetingCard key={meeting.id} meeting={meeting} asHost onCopy={copyInvite} />
               ))}
             </div>
           ) : (
@@ -189,7 +191,13 @@ function DashboardContent() {
           {data && data.recent_meetings.length > 0 ? (
             <div className="meeting-list recent-list">
               {data.recent_meetings.map((meeting) => (
-                <MeetingCard key={meeting.id} meeting={meeting} recent onCopy={copyInvite} />
+                <MeetingCard
+                  key={meeting.id}
+                  meeting={meeting}
+                  recent
+                  asHost={!!user && meeting.host_id === user.id}
+                  onCopy={copyInvite}
+                />
               ))}
             </div>
           ) : data ? (

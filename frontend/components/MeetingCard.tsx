@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowUpRight, CalendarClock, Clock, Sparkles, Video } from "lucide-react";
+import { CalendarClock, Clock, Sparkles, Video } from "lucide-react";
 import { useAuth } from "@/lib/authContext";
 import type { Meeting } from "@/lib/types";
 
@@ -16,15 +16,26 @@ function formatDate(date: string | null) {
   }).format(new Date(date));
 }
 
-export function MeetingCard({ meeting, recent = false, onCopy }: { meeting: Meeting; recent?: boolean; onCopy: (meeting: Meeting) => void }) {
+interface MeetingCardProps {
+  meeting: Meeting;
+  recent?: boolean;
+  /** Pass true when the card is shown to the meeting's own host (e.g. in Upcoming list). */
+  asHost?: boolean;
+  onCopy: (meeting: Meeting) => void;
+}
+
+export function MeetingCard({ meeting, recent = false, asHost = false, onCopy }: MeetingCardProps) {
   const { user } = useAuth();
 
-  // If the logged-in user is the host of this meeting, take them straight into
-  // the room as host — bypassing the join/waiting-room flow entirely.
-  const isHost = user && meeting.host_id === user.id;
+  // asHost is set by the parent when it already knows the meeting belongs to the
+  // logged-in user (e.g. upcoming list filtered server-side by host_id).
+  // We also do a runtime check as fallback.
+  const isHost = asHost || (!!user && meeting.host_id === user.id);
   const href = isHost
-    ? `/meeting/${meeting.meeting_id}?host=1&name=${encodeURIComponent(user.name)}`
+    ? `/meeting/${meeting.meeting_id}?host=1&name=${encodeURIComponent(user?.name ?? meeting.host_name)}`
     : `/join/${meeting.meeting_id}?token=${meeting.invite_token}`;
+
+  const label = isHost ? (recent ? "Rejoin" : "Start") : (recent ? "Rejoin" : "Join");
 
   return (
     <article className="meeting-card">
@@ -38,15 +49,15 @@ export function MeetingCard({ meeting, recent = false, onCopy }: { meeting: Meet
         <div className="meeting-meta">
           <span className="meta-time">
             <Clock size={12} />
-            {recent ? "Instant session" : formatDate(meeting.scheduled_at)}
+            {meeting.scheduled_at ? formatDate(meeting.scheduled_at) : "Instant session"}
           </span>
           <span className="dot">•</span>
           <span className="meeting-id">ID: {meeting.meeting_id}</span>
         </div>
       </div>
       <Link href={href} className="join-link">
-        <span>{isHost ? "Start" : (recent ? "Join" : "Details")}</span>
-        {isHost || recent ? <Video size={16} /> : <ArrowUpRight size={16} />}
+        <span>{label}</span>
+        <Video size={16} />
       </Link>
     </article>
   );
