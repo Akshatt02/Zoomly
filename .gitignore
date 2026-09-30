@@ -1,0 +1,20 @@
+# Frontend
+frontend/node_modules/
+frontend/.next/
+frontend/.env.local
+backend/.env
+frontend/tsconfig.tsbuildinfo
+frontend/.vercel/
+frontend/.gitignore
+
+# Python
+backend/.venv/
+backend/__pycache__/
+backend/**/__pycache__/
+*.py[cod]
+
+# Local SQLite data
+backend/*.db
+
+# System files
+.DS_Store
