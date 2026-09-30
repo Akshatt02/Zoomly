@@ -29,9 +29,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .me()
       .then(setUser)
       .catch(() => {
-        // Clear any stale cookie (e.g. after a DB reset) so the user
-        // lands on a clean login page rather than looping on 401.
-        authApi.logout().catch(() => {});
+        // Token is invalid or expired — clear it from localStorage
+        authApi.logout();
         setUser(null);
       })
       .finally(() => setLoading(false));

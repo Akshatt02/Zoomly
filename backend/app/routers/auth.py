@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -25,13 +25,30 @@ def _set_token_cookie(response: Response, token: str) -> None:
 
 
 def get_current_user(
+    request: Request,
     zoomly_token: str | None = Cookie(default=None),
     db: Session = Depends(get_db),
 ) -> User | None:
-    """Return the logged-in user from the JWT cookie, or None."""
-    if not zoomly_token:
+    """Return the logged-in user from the JWT.
+    
+    Accepts the token from:
+    1. Authorization: Bearer <token>  header  (primary — works cross-origin)
+    2. zoomly_token cookie             (fallback — for same-origin deployments)
+    """
+    token: str | None = None
+
+    # 1. Bearer header (from localStorage on the frontend)
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        token = auth_header[len("Bearer "):]
+
+    # 2. Cookie fallback
+    if not token:
+        token = zoomly_token
+
+    if not token:
         return None
-    payload = decode_token(zoomly_token)
+    payload = decode_token(token)
     if not payload:
         return None
     user = db.scalar(select(User).where(User.id == int(payload["sub"])))
