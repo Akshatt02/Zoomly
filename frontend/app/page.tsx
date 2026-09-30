@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { CalendarPlus, ChevronRight, Clock3, LoaderCircle, Plus, Users, Video } from "lucide-react";
+import { CalendarPlus, ChevronRight, Clock, History, LoaderCircle, Plus, Sparkles, UserPlus } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { MeetingCard } from "@/components/MeetingCard";
 import { Toast } from "@/components/Toast";
@@ -10,20 +10,177 @@ import { api } from "@/lib/api";
 import type { Dashboard, Meeting } from "@/lib/types";
 
 function DashboardContent() {
-  const router = useRouter(); const searchParams = useSearchParams();
-  const [data, setData] = useState<Dashboard | null>(null); const [error, setError] = useState(""); const [creating, setCreating] = useState(false); const [toast, setToast] = useState("");
-  useEffect(() => { api.dashboard().then(setData).catch((err) => setError(err.message)); }, []);
-  useEffect(() => { if (searchParams.get("scheduled")) setToast("Meeting scheduled and added to your calendar."); if (searchParams.get("left")) setToast("You left the meeting."); }, [searchParams]);
-  async function newMeeting() { setCreating(true); try { const meeting = await api.createInstant(); router.push(`/meeting/${meeting.meeting_id}?host=1&name=Akshat%20Jaipuriar`); } catch (err) { setError(err instanceof Error ? err.message : "Could not create meeting."); } finally { setCreating(false); } }
-  async function copyInvite(meeting: Meeting) { await navigator.clipboard.writeText(`${window.location.origin}${meeting.invite_url}`); setToast("Invite link copied to clipboard."); }
-  return <AppShell><div className="dashboard"><section className="welcome"><div><p className="eyebrow">Tuesday, September 29</p><h1>Good afternoon, {data?.user.name?.split(" ")[0] ?? "Alex"}</h1><p className="subtitle">Ready to connect? Start a meeting or pick up where you left off.</p></div><div className="time-card"><Clock3 size={20} /><span>{new Intl.DateTimeFormat("en", { hour: "numeric", minute: "2-digit" }).format(new Date())}</span></div></section>
-    <section className="actions-grid"><button className="action-card primary-action" onClick={newMeeting} disabled={creating}>{creating ? <LoaderCircle className="spin" size={25} /> : <Plus size={28} />}<strong>{creating ? "Starting..." : "New meeting"}</strong><span>Start an instant meeting</span></button><button className="action-card" onClick={() => router.push("/join")}><Users size={27} /><strong>Join</strong><span>Enter a meeting ID</span></button><button className="action-card" onClick={() => router.push("/schedule")}><CalendarPlus size={27} /><strong>Schedule</strong><span>Plan a future meeting</span></button></section>
-    {error && <div className="page-error">{error}</div>}
-    <section className="content-section"><div className="section-heading"><div><h2>Upcoming meetings</h2><p>Your next conversations, all in one place.</p></div><button className="text-button" onClick={() => router.push("/schedule")}>Schedule <ChevronRight size={16} /></button></div>{!data ? <div className="loading-row"><LoaderCircle className="spin" size={20} /> Loading your meetings</div> : data.upcoming_meetings.length ? <div className="meeting-list">{data.upcoming_meetings.map((meeting) => <MeetingCard key={meeting.id} meeting={meeting} onCopy={copyInvite} />)}</div> : <div className="empty-state">No upcoming meetings. Give your calendar something to look forward to.</div>}</section>
-    <section className="content-section"><div className="section-heading"><div><h2>Recent meetings</h2><p>Jump back into conversations you started.</p></div></div>{data && <div className="meeting-list recent-list">{data.recent_meetings.map((meeting) => <MeetingCard key={meeting.id} meeting={meeting} recent onCopy={copyInvite} />)}</div>}</section>
-  </div>{toast && <Toast message={toast} onClose={() => setToast("")} />}</AppShell>;
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [data, setData] = useState<Dashboard | null>(null);
+  const [error, setError] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [toast, setToast] = useState("");
+  const [currentTime, setCurrentTime] = useState("");
+
+  useEffect(() => {
+    api.dashboard().then(setData).catch((err) => setError(err.message));
+
+    const updateTime = () => {
+      setCurrentTime(
+        new Intl.DateTimeFormat("en", {
+          hour: "numeric",
+          minute: "2-digit",
+        }).format(new Date())
+      );
+    };
+    updateTime();
+    const interval = setInterval(updateTime, 10000);
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    if (searchParams.get("scheduled")) setToast("Meeting scheduled and added to your workspace.");
+    if (searchParams.get("left")) setToast("You left the meeting room.");
+  }, [searchParams]);
+
+  async function newMeeting() {
+    setCreating(true);
+    try {
+      const meeting = await api.createInstant();
+      router.push(`/meeting/${meeting.meeting_id}?host=1&name=Akshat%20Jaipuriar`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not create instant meeting.");
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  async function copyInvite(meeting: Meeting) {
+    await navigator.clipboard.writeText(`${window.location.origin}${meeting.invite_url}`);
+    setToast("Invite link copied to clipboard.");
+  }
+
+  const todayFormatted = new Intl.DateTimeFormat("en", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+  }).format(new Date());
+
+  return (
+    <AppShell>
+      <div className="dashboard">
+        <section className="welcome">
+          <div>
+            <div className="eyebrow-badge">
+              <span className="live-dot" />
+              <span>{todayFormatted}</span>
+            </div>
+            <h1>Good afternoon, {data?.user.name?.split(" ")[0] ?? "Akshat"}</h1>
+            <p className="subtitle">Ready to collaborate? Launch an instant video room or manage upcoming calls.</p>
+          </div>
+          <div className="time-card">
+            <Clock size={18} className="time-icon" />
+            <span>{currentTime || "12:00 PM"}</span>
+          </div>
+        </section>
+
+        <section className="actions-grid">
+          <button className="action-card primary-action" onClick={newMeeting} disabled={creating}>
+            <div className="action-icon-badge">
+              {creating ? <LoaderCircle className="spin" size={26} /> : <Plus size={26} />}
+            </div>
+            <div className="action-text">
+              <strong>{creating ? "Launching Room..." : "New Meeting"}</strong>
+              <span>Instant video workspace</span>
+            </div>
+            <Sparkles className="card-sparkle-bg" size={60} />
+          </button>
+
+          <button className="action-card secondary-action" onClick={() => router.push("/join")}>
+            <div className="action-icon-badge blue-badge">
+              <UserPlus size={24} />
+            </div>
+            <div className="action-text">
+              <strong>Join Meeting</strong>
+              <span>Enter meeting ID or invite link</span>
+            </div>
+          </button>
+
+          <button className="action-card secondary-action" onClick={() => router.push("/schedule")}>
+            <div className="action-icon-badge purple-badge">
+              <CalendarPlus size={24} />
+            </div>
+            <div className="action-text">
+              <strong>Schedule</strong>
+              <span>Plan ahead on your calendar</span>
+            </div>
+          </button>
+        </section>
+
+        {error && <div className="page-error">{error}</div>}
+
+        <section className="content-section">
+          <div className="section-heading">
+            <div>
+              <h2>Upcoming meetings</h2>
+              <p>Your upcoming sessions and calls.</p>
+            </div>
+            <button className="text-button" onClick={() => router.push("/schedule")}>
+              Schedule call <ChevronRight size={16} />
+            </button>
+          </div>
+
+          {!data ? (
+            <div className="loading-row">
+              <LoaderCircle className="spin" size={20} /> Loading workspace meetings...
+            </div>
+          ) : data.upcoming_meetings.length ? (
+            <div className="meeting-list">
+              {data.upcoming_meetings.map((meeting) => (
+                <MeetingCard key={meeting.id} meeting={meeting} onCopy={copyInvite} />
+              ))}
+            </div>
+          ) : (
+            <div className="empty-state">
+              <CalendarPlus size={22} />
+              <span>No upcoming meetings scheduled. Click &quot;Schedule&quot; to set one up.</span>
+            </div>
+          )}
+        </section>
+
+        <section className="content-section">
+          <div className="section-heading">
+            <div>
+              <h2>Recent meetings</h2>
+              <p>Quick access to previous video rooms.</p>
+            </div>
+          </div>
+          {data && data.recent_meetings.length > 0 ? (
+            <div className="meeting-list recent-list">
+              {data.recent_meetings.map((meeting) => (
+                <MeetingCard key={meeting.id} meeting={meeting} recent onCopy={copyInvite} />
+              ))}
+            </div>
+          ) : data ? (
+            <div className="empty-state">
+              <History size={20} />
+              <span>No recent meeting history.</span>
+            </div>
+          ) : null}
+        </section>
+      </div>
+      {toast && <Toast message={toast} onClose={() => setToast("")} />}
+    </AppShell>
+  );
 }
 
 export default function DashboardPage() {
-  return <Suspense fallback={<AppShell><div className="loading-row">Loading your dashboard</div></AppShell>}><DashboardContent /></Suspense>;
+  return (
+    <Suspense
+      fallback={
+        <AppShell>
+          <div className="loading-row">Loading your dashboard...</div>
+        </AppShell>
+      }
+    >
+      <DashboardContent />
+    </Suspense>
+  );
 }
+

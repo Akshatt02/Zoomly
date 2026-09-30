@@ -29,5 +29,47 @@ export function JoinForm({ initialMeetingId = "" }: { initialMeetingId?: string 
     try { await api.meeting(meetingId.trim()); const participant = await api.join(meetingId.trim(), displayName); router.push(`/meeting/${meetingId.trim()}?name=${encodeURIComponent(displayName)}&participant=${participant.id}&waiting=${participant.status === "waiting" ? "1" : "0"}`); }
     catch (err) { setError(err instanceof Error ? err.message : "Could not join the meeting."); } finally { setJoining(false); }
   }
-  return <form className="form-card join-form" onSubmit={submit}>{previewing && <div className="prejoin-preview"><video ref={previewRef} autoPlay muted playsInline /><span>You&apos;re ready to join</span></div>}<button type="button" className="preview-toggle" onClick={togglePreview}>{previewing ? <VideoOff size={17} /> : <Camera size={17} />}{previewing ? "Turn off preview" : "Preview camera and mic"}</button><label>Meeting ID or personal link name<input value={meetingId} onChange={(e) => setMeetingId(e.target.value)} placeholder="Enter meeting ID" required /></label><label>Your display name<input value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="How should people see you?" required minLength={2} /></label>{(error || previewError) && <p className="form-error">{error || previewError}</p>}<button className="primary-button form-submit" disabled={joining}>{joining ? <LoaderCircle className="spin" size={18} /> : <Video size={18} />}Join</button></form>;
+  return (
+    <form className="form-card join-form" onSubmit={submit}>
+      {previewing && (
+        <div className="prejoin-preview">
+          <video ref={previewRef} autoPlay muted playsInline />
+          <span>Camera preview active</span>
+        </div>
+      )}
+      <button type="button" className="preview-toggle" onClick={togglePreview}>
+        {previewing ? <VideoOff size={17} /> : <Camera size={17} />}
+        {previewing ? "Turn off camera preview" : "Test camera & mic preview"}
+      </button>
+
+      <label>
+        Meeting ID
+        <input
+          value={meetingId}
+          onChange={(e) => setMeetingId(e.target.value)}
+          placeholder="e.g. 10-digit meeting ID"
+          required
+        />
+      </label>
+
+      <label>
+        Your display name
+        <input
+          value={displayName}
+          onChange={(e) => setDisplayName(e.target.value)}
+          placeholder="Enter your name"
+          required
+          minLength={2}
+        />
+      </label>
+
+      {(error || previewError) && <p className="form-error">{error || previewError}</p>}
+
+      <button className="primary-button form-submit" disabled={joining}>
+        {joining ? <LoaderCircle className="spin" size={18} /> : <Video size={18} />}
+        {joining ? "Joining Room..." : "Join Meeting"}
+      </button>
+    </form>
+  );
+
 }
